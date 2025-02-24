@@ -1,0 +1,9 @@
+flask
+langchain
+langgraph
+langchain-core
+python-dotenv
+requests
+pydantic
+langchain_openai
+python-dateutil
