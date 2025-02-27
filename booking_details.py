@@ -12,7 +12,7 @@ app = Flask(__name__)
 llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
 
 def getData_for_duckling(text, dims):
-    url = 'http://localhost:8000/parse'
+    url = 'http://rasa_duckling:8000/parse'
     data = {
         'locale': 'en_US',
         'text': text,
@@ -26,6 +26,8 @@ def getData_for_duckling(text, dims):
         return json_response
     else:
         return f"Error: {response.status_code}"
+pick_up_result = None
+destination_result = None
 class BookingCarDetails(BaseModel):
     """Details for the bookings car details"""
     name: str = Field(
@@ -63,32 +65,31 @@ class BookingCarDetails(BaseModel):
     )
     @field_validator('pick_up_location')
     @classmethod
-    def validate_pickup(cls, value:str, info: ValidationInfo):
+    def validate_pickup(cls, value:str):
+        global pick_up_result
         geoCodingAPI = GeoCodingAPI()
         if value == '':
             return ''
         else :
             geoCoding_pickup = geoCodingAPI.get_geocoding(value)
             if geoCoding_pickup["status"] == "OK" :
-
+                pick_up_result = geoCoding_pickup
                 return geoCoding_pickup['results'][0]['formatted_address']
             else:
                 raise ValueError(f"Invalid pick-up location: {value}")
             
     @field_validator('destination_location')
     @classmethod
-    def validate_destination(cls, value : str, info: ValidationInfo):
+    def validate_destination(cls, value : str):
+        global destination_result
         geoCodingAPI = GeoCodingAPI()
         if value == '':
             return ''
         else :
             geoCoding_destination = geoCodingAPI.get_geocoding(value)
             if geoCoding_destination["status"] == "OK":
-                if geoCoding_destination['results'][0]['formatted_address'] == info.data['pick_up_location']:
-                    raise ValueError(f"Invalid destination location: {value}")
-                else:
-
-                    return geoCoding_destination['results'][0]['formatted_address']
+                destination_result = geoCoding_destination
+                return geoCoding_destination['results'][0]['formatted_address']
             else:
             
                 raise ValueError(f"Invalid destination location: {value}")
@@ -112,6 +113,7 @@ class BookingCarDetails(BaseModel):
 chain = llm.with_structured_output(BookingCarDetails)
 @app.route('/api/booking', methods=['POST'])
 def chat():
+    global pick_up_result, destination_result
     input_data = request.json
     if not input_data or 'messages' not in input_data:
         return jsonify({'error': 'Invalid input'}), 400
@@ -119,12 +121,21 @@ def chat():
     if not messages or not isinstance(messages, list):
         return jsonify({'error': 'Invalid input, messages must be a non-empty list'}), 400# This gets the items in the queue
     list_responses = []
-    for message in messages:   
+    for message in messages: 
+         
         # request_queue.put((request_id, message))
         reponse = chain.invoke(message)
-        list_responses.append(reponse.model_dump())
+        list_responses.append({
+            "response": reponse.model_dump(),
+            "pick_up_result": pick_up_result,
+            "destination_result": destination_result
+        })
+        pick_up_result = None  
+        destination_result = None 
+
+        
     response = {
-        'responses': list_responses
+        'responses': list_responses,
     }
     return jsonify(response), 200
 
